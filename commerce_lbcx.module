@@ -1,0 +1,118 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_lbcx_menu() {
+  $items['commerce_lbcx/callback'] = array(
+    'page callback' => 'commerce_lbcx_callback',
+    'access callback' => true,
+    'type' => MENU_CALLBACK,
+  );
+}
+
+/**
+ *
+ */
+function commerce_lbcx_callback() {
+  /** @TODO Callback code here */
+}
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_lbcx_commerce_payment_method_info() {
+  $payment_methods['lbcx'] = array(
+    'base' => 'commerce_lbcx',
+    'title' => t('LBCX'),
+    'short_title' => t('LBCX'),
+    'description' => t('LBCX Payments'),
+    'terminal' => FALSE,
+    'offsite' => TRUE,
+    'offsite_autoredirect' => TRUE,
+  );  
+
+  return $payment_methods;
+}
+
+/**
+ * Returns the default settings for the LBCX standard payment method.
+ */
+function commerce_lbcx_default_settings() {
+  return array(
+    'api_key' => '',
+    'secret_key' => '',
+    'currency_code' => 'PHP',
+    'server' => 'sandbox',
+  );
+}
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_lbcx_settings_form($settings = array()) {
+
+  $settings = (array) $settings + commerce_lbcx_default_settings();
+
+  $form['api_key'] = array(
+    '#type' => 'textfield',
+    '#title' => 'API Key',
+    '#description' => 'A unique code assigned by LBCX.',
+    '#default_value' => $settings['api_key'],
+    '#required' => true,
+  );
+  $form['secret_key'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Secret Key',
+    '#description' => 'A unique code for assigned by LBCX for checksum validation.',
+    '#default_value' => $settings['secret_key'],
+    '#required' => true,
+  );
+  $form['server'] = array(
+    '#type' => 'radios',
+    '#title' => 'LBCX Server',
+    '#options' => array(
+      'sandbox' => t('Sandbox Server'),
+      'live' => t('Live Server'),
+    ),
+    '#default_value' => $settings['server'],
+    '#required' => true,
+  );
+
+  return $form;
+}
+
+/**
+ * Payment method callback: Submit form.
+ *
+ * Adds a message to the submission form if enabled in the payment method.
+ */
+function commerce_lbcx_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+  $form = array();
+
+  if (!empty($payment_method['settings']['show_payment_instructions'])) {
+    $form['Dragonpay_information'] = array(
+      '#markup' => '<span class="commerce-dragonpay--info">' . t('(Continue with checkout to complete payment via Dragonpay.)') . '</span>',
+    );
+  }
+
+  return $form;
+}
+
+/**
+ * Payment method callback: Redirect form.
+ *
+ * A wrapper around the module's general use function for building a form.
+ */
+function commerce_lbcx_redirect_form($form, &$form_state, $order, $payment_method) {
+  $form['test'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Test',
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Pay using LBCX'),
+  );
+
+  return $form;
+}
