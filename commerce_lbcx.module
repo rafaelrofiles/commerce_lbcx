@@ -1,5 +1,8 @@
 <?php
 
+define('TEST_API_KEY', '72758e5ddaa3fdea');
+define('TEST_SECRET_KEY', '2eecea15fd86428077b0cb7b9d1ccbba');
+
 /**
  * Implements hook_menu().
  */
@@ -9,13 +12,111 @@ function commerce_lbcx_menu() {
     'access callback' => true,
     'type' => MENU_CALLBACK,
   );
+  $items['commerce_lbcx/orders'] = array(
+    'page callback' => 'commerce_lbcx_orders',
+    'access callback' => true,
+  );
+  $items['commerce_lbcx/order/send'] = array(
+    'page callback' => 'commerce_lbcx_order',
+    'access callback' => true,
+  );
+
+  return $items;
 }
 
 /**
  *
  */
+function commerce_lbcx_order() {
+  $token = _commerce_lbcx_authorization();
+  $url = 'http://api.staging.lbcx.ph/v1/orders';
+  $curl = curl_init($url);
+  $curlopt_httpheader = array(
+    "authorization: Bearer $token",
+    'content-type: application/json'
+  );
+
+  $request_fields = array(
+    'name' => 'Test Test',
+    'line_1' => '3F Romari Bldg., Quirino Hwy.,',
+    'city' => 'Quezon City',
+    'state' => 'NCR',
+    'postal_code' => '1131',
+    'country' => 'PH',
+
+    'type' => 'shipping',
+    'description' => 'Shipping Fee',
+    'amount' => '30.00',
+    
+  );
+
+  curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($request_fields));
+}
+
+/**
+ * 
+ */
 function commerce_lbcx_callback() {
+  
   /** @TODO Callback code here */
+}
+
+/**
+ * Returns the security token for Authorization header.
+ *
+ * Documentation: http://docs.lbcx.ph/#authorization
+ */
+function _commerce_lbcx_authorization() {
+  $api_key = TEST_API_KEY;
+  $secret_key = TEST_SECRET_KEY;
+
+  $header = base64_encode('{"alg": "HS256","typ": "JWT"}');
+
+  $payload = base64_encode('{"iat": ' . time() . ',"jti": "' . uniqid() . '","sub": "' . $api_key . '"}');
+
+  $header_payload_combine = $header . '.' . $payload;
+
+  $signature = JWT::encode($header_payload_combine, $secret_key);
+
+  // $signature = base64_encode(hash_hmac('sha256', $header_payload_combine, $secret_key, true));
+  
+  $token = $header_payload_combine . '.' . $signature;
+
+  return $token;
+}
+
+/**
+ * Returns a list of orders. 
+ *
+ * Documentation: https://documenter.getpostman.com/view/573391/orders-api/2PMscX#ce36683-ef0a-8e7f-3655-bdba70de6796
+ */
+function commerce_lbcx_orders() {
+
+  $url = 'http://api.staging.lbcx.ph/v1/orders';
+  
+  $ch = curl_init($url);
+
+  curl_setopt_array($ch, array(
+    CURLOPT_HEADER => 1,
+    CURLOPT_RETURNTRANSFER => 1,
+    CURLOPT_HTTPHEADER => array(
+      "Authorization: Bearer " . _commerce_lbcx_authorization(),
+      'Content-type: multipart/form-data; boundary=---011000010111000001101001'
+    )
+  ));
+
+  $responseFields = curl_exec($ch);
+
+  dpm(array(
+    'http_code' => curl_getinfo($ch, CURLINFO_HTTP_CODE),
+    'err_no' => curl_errno($ch),
+    'responseFields' => $responseFields,
+  ));
+
+  curl_close($ch);
+
+
+  return 'test';
 }
 
 /**
