@@ -1,14 +1,13 @@
 <?php
 
-define('TEST_API_KEY', '72758e5ddaa3fdea');
-define('TEST_SECRET_KEY', '2eecea15fd86428077b0cb7b9d1ccbba');
+
 
 /**
  * Implements hook_menu().
  */
 function commerce_lbcx_menu() {
-  $items['commerce_lbcx/callback'] = array(
-    'page callback' => 'commerce_lbcx_callback',
+  $items['commerce_lbcx/webhook'] = array(
+    'page callback' => 'commerce_lbcx_webhook',
     'access callback' => true,
     'type' => MENU_CALLBACK,
   );
@@ -16,49 +15,12 @@ function commerce_lbcx_menu() {
     'page callback' => 'commerce_lbcx_orders',
     'access callback' => true,
   );
-  $items['commerce_lbcx/order/send'] = array(
-    'page callback' => 'commerce_lbcx_order',
+  $items['commerce_lbcx/orders/send'] = array(
+    'page callback' => 'commerce_lbcx_orders_send',
     'access callback' => true,
   );
 
   return $items;
-}
-
-/**
- *
- */
-function commerce_lbcx_order() {
-  $token = _commerce_lbcx_authorization();
-  $url = 'http://api.staging.lbcx.ph/v1/orders';
-  $curl = curl_init($url);
-  $curlopt_httpheader = array(
-    "authorization: Bearer $token",
-    'content-type: application/json'
-  );
-
-  $request_fields = array(
-    'name' => 'Test Test',
-    'line_1' => '3F Romari Bldg., Quirino Hwy.,',
-    'city' => 'Quezon City',
-    'state' => 'NCR',
-    'postal_code' => '1131',
-    'country' => 'PH',
-
-    'type' => 'shipping',
-    'description' => 'Shipping Fee',
-    'amount' => '30.00',
-    
-  );
-
-  curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($request_fields));
-}
-
-/**
- * 
- */
-function commerce_lbcx_callback() {
-  
-  /** @TODO Callback code here */
 }
 
 /**
@@ -67,22 +29,45 @@ function commerce_lbcx_callback() {
  * Documentation: http://docs.lbcx.ph/#authorization
  */
 function _commerce_lbcx_authorization() {
-  $api_key = TEST_API_KEY;
-  $secret_key = TEST_SECRET_KEY;
-
-  $header = base64_encode('{"alg": "HS256","typ": "JWT"}');
-
-  $payload = base64_encode('{"iat": ' . time() . ',"jti": "' . uniqid() . '","sub": "' . $api_key . '"}');
-
-  $header_payload_combine = $header . '.' . $payload;
-
-  $signature = JWT::encode($header_payload_combine, $secret_key);
-
-  // $signature = base64_encode(hash_hmac('sha256', $header_payload_combine, $secret_key, true));
   
-  $token = $header_payload_combine . '.' . $signature;
+  $token = array(
+    'iat' => time(),
+    'jti' => uniqid(),
+    'sub' => variable_get('lbcx_api_key', '72758e5ddaa3fdea'),
+  );
 
-  return $token;
+  return JWT::encode($token, variable_get('lbcx_secret_key', '2eecea15fd86428077b0cb7b9d1ccbba'));
+}
+
+/**
+ * cURL request handler.
+ */
+function commerce_lbcx_send_request($request_fields, $url) {
+
+  $ch = curl_init($url);
+
+  curl_setopt_array($ch, $request_fields);
+
+  $response = curl_exec($ch);
+
+  if(curl_errno($ch)) {
+      $error_message  = 'Error occurred: ' . curl_error($ch);
+      $error_code     = curl_errno($ch);
+    } elseif(curl_getinfo($ch, CURLINFO_HTTP_CODE) != 200) {
+      $error_code     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      $error_message  = "Error occurred. HTTP code: '{$error_code}'";
+    }
+
+    curl_close($ch);
+
+    if (!empty($error_message)) {
+      throw new RuntimeException($error_message, $error_code);
+      return $error_code . ' ' . $error_message;
+    }
+
+    parse_str($response);
+
+    return $response;
 }
 
 /**
@@ -91,32 +76,97 @@ function _commerce_lbcx_authorization() {
  * Documentation: https://documenter.getpostman.com/view/573391/orders-api/2PMscX#ce36683-ef0a-8e7f-3655-bdba70de6796
  */
 function commerce_lbcx_orders() {
-
   $url = 'http://api.staging.lbcx.ph/v1/orders';
-  
-  $ch = curl_init($url);
 
-  curl_setopt_array($ch, array(
+  $authorization_key = _commerce_lbcx_authorization();
+
+  $request_fields = array(
     CURLOPT_HEADER => 1,
     CURLOPT_RETURNTRANSFER => 1,
     CURLOPT_HTTPHEADER => array(
-      "Authorization: Bearer " . _commerce_lbcx_authorization(),
+      "Authorization: Bearer " . $authorization_key,
       'Content-type: multipart/form-data; boundary=---011000010111000001101001'
-    )
-  ));
+    ),
+  );
 
-  $responseFields = curl_exec($ch);
+  $response_fields = commerce_lbcx_send_request($request_fields, $url);
 
-  dpm(array(
-    'http_code' => curl_getinfo($ch, CURLINFO_HTTP_CODE),
-    'err_no' => curl_errno($ch),
-    'responseFields' => $responseFields,
-  ));
+  return 'Test Environment';
+}
 
-  curl_close($ch);
+/**
+ * Send order.
+ */
+function commerce_lbcx_orders_send() {
+  $url = 'http://api.staging.lbcx.ph/v1/orders';
 
+  $authorization_key = _commerce_lbcx_authorization();
 
-  return 'test';
+  $data = array(
+    'currency' => 'PHP',
+    'total' => 1000,
+    'payment_method' => 'credit_card',
+    'payment_provider' => 'paypal',
+    'status' => 'pending',
+    'buyer_name' => 'Lyza Samaco',
+    'shipment' => 'us-air',
+    'metadata' => array(
+      'account_number' => '12-687473',
+    ),
+    'delivery_address' => array(
+      'name' => 'Lyza Samaco',
+      'email' => 'rrofiles.dev@gmail.com',
+      'company' => 'Shinra Software Solutions',
+      'phone_number' => '434-7777',
+      'mobile_number' => '+639192949244',
+      'line_1' => '3F Romari Bldg.,',
+      'line_2' => 'Quirino Hwy., Sangandaan',
+      'city' => 'Quezon City',
+      'state' => 'NCR',
+      'postal_code' => '1131',
+      'country' => 'Philippines',
+    ),
+    'reference_id' => '001',
+    'email' => 'rrofiles.dev@gmail.com',
+    'contact_number' => '+639192949244',
+    'remarks' => 'Test Order',
+    'items' => array(
+      array(
+        'description' => 'Item 1',
+        'parcel_id' => 1,
+        'type' => 'product',
+        'amount' => 0,
+        'insured_value' => 100,
+      ),
+    ),
+  );
+
+  $request_fields = array(
+    CURLOPT_HEADER => 1,
+    CURLOPT_RETURNTRANSFER => 1,
+    CURLOPT_HTTPHEADER => array(
+      "Authorization: " . $authorization_key,
+      'Content-type: application/json',
+      'x-time-zone: Asia/Manila',
+    ),
+    CURLOPT_POSTFIELDS => json_encode($data),
+  );
+
+  $response_fields = commerce_lbcx_send_request($request_fields, $url);
+
+  dsm($response_fields);
+
+  return 'Test Environment';
+}
+
+/**
+ * 
+ */
+function commerce_lbcx_webhook() {  
+  $data = json_decode($_POST['data']);
+  dpm($data);
+
+  return '';
 }
 
 /**
@@ -143,6 +193,7 @@ function commerce_lbcx_default_settings() {
   return array(
     'api_key' => '',
     'secret_key' => '',
+    'payment_provider' => '',
     'currency_code' => 'PHP',
     'server' => 'sandbox',
   );
@@ -169,6 +220,19 @@ function commerce_lbcx_settings_form($settings = array()) {
     '#default_value' => $settings['secret_key'],
     '#required' => true,
   );
+  $form['payment_provider'] = array(
+    '#type' => 'select',
+    '#title' => 'Payment Provider',
+    '#description' => 'Payment provider that processed the payment',
+    '#options' => array(
+      'asiapay' => 'AsiaPay',
+      'dragonpay' => 'Dragonpay',
+      'lbc' => 'LBC',
+      'lbcx' => 'LBCX',
+    ),
+    '#default_value' => $settings['payment_provider'],
+    '#required' => true,
+  );
   $form['server'] = array(
     '#type' => 'radios',
     '#title' => 'LBCX Server',
@@ -192,12 +256,48 @@ function commerce_lbcx_submit_form($payment_method, $pane_values, $checkout_pane
   $form = array();
 
   if (!empty($payment_method['settings']['show_payment_instructions'])) {
-    $form['Dragonpay_information'] = array(
-      '#markup' => '<span class="commerce-dragonpay--info">' . t('(Continue with checkout to complete payment via Dragonpay.)') . '</span>',
+    $form['LBCX_information'] = array(
+      '#markup' => '<span class="commerce-lbcx--info">' . t('(Continue with checkout to complete payment via LBCX.)') . '</span>',
     );
   }
 
   return $form;
+}
+
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function commerce_lbcx_form_commerce_checkout_form_alter(&$form, &$form_state) {
+  // If this checkout form contains the payment method radios...
+  if (!empty($form['commerce_payment']['payment_method']['#options'])) {
+    // Loop over its options array looking for a LBCX option.
+    foreach ($form['commerce_payment']['payment_method']['#options'] as $key => &$value) {
+      list($method_id, $rule_name) = explode('|', $key);
+
+      // If we find LBCX ...
+      if ($method_id == 'lbcx') {
+        // Prepare the replacement radio button text with icons.
+        $value = t('LBCX - pay directly with your bank account or with over-the-counter using LBCX secured payment portal.');
+
+        $form['buttons']['continue']['#validate'][] = 'commerce_lbcx_form_commerce_checkout_form_validate';
+
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * Validate currency.
+ */
+function commerce_lbcx_form_commerce_checkout_form_validate(&$form, &$form_state) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $form_state['order']);
+  $currency_code = $order_wrapper->commerce_order_total->currency_code->value();
+  $commerce_lbcx_currencies = commerce_lbcx_currencies();
+  if (!in_array($currency_code, $commerce_lbcx_currencies)) {
+    form_set_error('', t('Sorry, your order currency is not supported by LBCX.'));
+  }
 }
 
 /**
@@ -206,14 +306,97 @@ function commerce_lbcx_submit_form($payment_method, $pane_values, $checkout_pane
  * A wrapper around the module's general use function for building a form.
  */
 function commerce_lbcx_redirect_form($form, &$form_state, $order, $payment_method) {
-  $form['test'] = array(
-    '#type' => 'textfield',
-    '#title' => 'Test',
+  
+  // Return an error if the enabling action's settings haven't been configured.
+  if (empty($payment_method['settings']['merchantid'])) {
+    drupal_set_message(t('LBCX is not configured for use. No LBCX Merchant ID has been specified.'), 'error');
+    return array();
+  }
+
+  $settings = array(
+    // Return to the previous page when payment is canceled.
+    'cancel_return' => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+
+    // Return to the payment redirect page for processing successful payments.
+    'return' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+
+    // Specify the current payment method instance ID in the notify_url.
+    'payment_method' => $payment_method['instance_id'],
+
+    // Include the application indicator.
+    'bn' => $payment_method['buttonsource'],
   );
+
+  return commerce_lbcx_order_form($form, $form_state, $order, $payment_method['settings'] + $settings);
+}
+
+/**
+ * @return array
+ *   A renderable form array.
+ */
+function commerce_lbcx_order_form($form, &$form_state, $order, array $settings) {
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  $currency_code = $settings['currency_code'];
+  $order_currency_code = $wrapper->commerce_order_total->currency_code->value();
+ 
+  $amount = commerce_currency_convert($wrapper->commerce_order_total->amount->value(), $order_currency_code, $currency_code);
+
+  $settings += array('payment_method' => '');
+
+  $data = array(
+    'merchantid' => $settings['merchantid'],
+    'amount' => commerce_lbcx_currency_amount_to_decimal($amount, $currency_code),
+    'ccy' => $currency_code,
+    'description' => token_replace($settings['description'], array('commerce-order' => $order)),
+    'email' => $order->mail,
+  );
+
+  drupal_alter('commerce_lbcx_order_form_data', $data, $order);
+
+  $server_url = commerce_lbcx_server_url($settings['server']);
+
+  // Add the redirect path.
+  $form['#action'] = url($server_url, array('query' => $data, 'absolute' => TRUE));
+
+  foreach ($data as $name => $value) {
+    if (!empty($value)) {
+      $form[$name] = array('#type' => 'hidden', '#value' => $value);
+    }
+  }
+
   $form['submit'] = array(
     '#type' => 'submit',
-    '#value' => t('Pay using LBCX'),
+    '#value' => t('Proceed to LBCX'),
   );
 
   return $form;
+}
+
+function commerce_lbcx_server_url($server) {
+  switch ($server) {
+    case 'sandbox':
+      return 'http://api.staging.lbcx.ph/v1';
+
+    case 'live':
+      return 'http://api.lbcx.ph/v1';
+  }
+}
+
+function commerce_lbcx_currency_amount_to_decimal($amount, $currency_code) {
+  $val = commerce_currency_amount_to_decimal($amount, $currency_code);
+  return sprintf('%0.2f', $val);
+}
+
+function _commerce_lbcx_error_codes() {
+  return array(
+    '200' => 'Success',
+    '400' => 'Bad Request',
+    '401' => 'Unauthorized',
+    '404' => 'Not Found',
+    '413' => 'Request Entity Too Large',
+    '422' => 'Unprocessable Entity',
+    '429' => 'Too Many Requests',
+    '500' => 'Internal Server Error',
+  );
 }
