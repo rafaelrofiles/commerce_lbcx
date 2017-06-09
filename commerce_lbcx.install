@@ -1,0 +1,29 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function commerce_lbcx_schema() {
+  $schema['commerce_lbcx_log'] = array(
+    'description' => 'Logs for Commerce LBCX testing.',
+    'fields' => array(
+      'lbcx_id' => array(
+        'type' => 'serial',
+        'not null' => true,
+      ),
+      'log_date' => array(
+        'mysql_type' => 'datetime',
+      ),
+      'log_message' => array(
+        'type' => 'varchar',
+        'length' => 255,
+      ),
+      'logged_by' => array(
+        'type' => 'int',
+      ),
+    ),
+    'primary key' => array('lbcx_id'),
+  );
+
+  return $schema;
+}
