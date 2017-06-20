@@ -9,16 +9,46 @@ function commerce_lbcx_menu() {
     'access callback' => true,
     'type' => MENU_CALLBACK,
   );
-  $items['commerce_lbcx/orders'] = array(
-    'page callback' => 'commerce_lbcx_orders',
-    'access callback' => true,
-  );
-  $items['commerce_lbcx/orders/send'] = array(
-    'page callback' => 'commerce_lbcx_orders_send',
-    'access callback' => true,
+  $items['admin/config/commerce_lbcx'] = array(
+    'title' => 'Commerce LBCX Settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_lbcx_config_form'),
+    'access arguments' => array('admin commerce lbcx'),
   );
 
   return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_lbcx_permission() {
+  $permissions['admin commerce lbcx'] = array(
+    'title' => 'Administer Commerce LBCX',
+    'description' => 'Allows the user to perform administrative tasks for Commerce LBCX Module.'
+  );
+
+  return $permissions;
+}
+
+/**
+ * Defines the form for Commerce LBCX Config.
+ */
+function commerce_lbcx_config_form($form, &$form_state) {
+  $form['commerce_lbcx_email'] = array(
+    '#title' => 'Commerce LBCX Email Sender',
+    '#type' => 'textfield',
+    '#required' => true,
+    '#default_value' => variable_get('commerce_lbcx_email'),
+  );
+  $form['commerce_lbcx_message'] = array(
+    '#title' => 'Commerce LBCX Message',
+    '#type' => 'textarea',
+    '#required' => true,
+    '#default_value' => variable_get('commerce_lbcx_message'),
+  );
+
+  return system_settings_form($form);
 }
 
 /**
@@ -51,7 +81,7 @@ function commerce_lbcx_commerce_payment_method_info() {
 }
 
 /**
- * Payment method callback: settings form.
+ * Payment method callback: Settings form.
  */
 function commerce_lbcx_settings_form($settings = array()) {
 
@@ -99,72 +129,137 @@ function commerce_lbcx_settings_form($settings = array()) {
 }
 
 /**
+ * Payment method callback: Submit form.
+ */
+function commerce_lbcx_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+  $form['preferred_delivery_time'] = array(
+    '#type' => 'container',
+    '#attributes' => array(
+      'class' => array(
+        'field-preferred-delivery-time-container',
+      ),
+    ),
+  );
+  $form['preferred_delivery_time']['from'] = array(
+    '#type' => 'select',
+    '#title' => 'Preferred Delivery Time From',
+    '#options' => _commerce_lbcx_delivery_time(),
+  );
+  $form['preferred_delivery_time']['to'] = array(
+    '#type' => 'select',
+    '#title' => 'To',
+    '#options' => _commerce_lbcx_delivery_time(),
+  );
+
+  return $form;
+}
+
+/**
  * Payment method callback: Submit form submit.
  */
 function commerce_lbcx_submit_form_submit($payment_method, $pane_values, $checkout_pane, $order) {
-  $url = commerce_lbcx_server_url($payment_method['settings']['server']);
-
+  $url = _commerce_lbcx_server_url($payment_method['settings']['server']);
   $authorization_key = _commerce_lbcx_authorization(
     $payment_method['settings']['api_key'], $payment_method['settings']['secret_key']
   );
 
-  $data = array(
+  $default_data = array(
     'currency' => 'PHP',
-    'total' => 1000,
-    'payment_method' => 'credit_card',
-    'payment_provider' => 'paypal',
-    'status' => 'pending',
-    'buyer_name' => 'Lyza Samaco',
-    'shipment' => 'us-air',
-    'metadata' => array(
-      'account_number' => '12-687473',
-    ),
-    'delivery_address' => array(
-      'name' => 'Lyza Samaco',
-      'email' => 'rrofiles.dev@gmail.com',
-      'company' => 'Shinra Software Solutions',
-      'phone_number' => '434-7777',
-      'mobile_number' => '+639192949244',
-      'line_1' => '3F Romari Bldg.,',
-      'line_2' => 'Quirino Hwy., Sangandaan',
-      'city' => 'Quezon City',
-      'state' => 'NCR',
-      'postal_code' => '1131',
-      'country' => 'Philippines',
-    ),
-    'reference_id' => '001',
-    'email' => 'rrofiles.dev@gmail.com',
-    'contact_number' => '+639192949244',
-    'remarks' => 'Test Order',
-    'items' => array(
-      array(
-        'description' => 'Item 1',
-        'parcel_id' => 1,
-        'type' => 'product',
-        'amount' => 0,
-        'insured_value' => 100,
-      ),
-    ),
   );
+
+  $data = array() + $default_data;
+
+  $data['payment_method'] = _commerce_lbcx_payment_methods($payment_method['method_id']);
+  $data['payment_provider'] = $payment_method['settings']['payment_provider'];
+
+  $data['email'] = $order->mail;
+  $data['reference_id'] = $order->order_id;
+  $data['total'] = 0;
+
+  $customer_profile_id = field_get_items('commerce_order', $order, 'commerce_customer_billing');
+  if ($customer_profile_id) {
+    $customer_profile_id = $customer_profile_id[0]['profile_id'];
+    $commerce_customer_profile = commerce_customer_profile_load($customer_profile_id);
+    $commerce_customer_address = field_get_items('commerce_customer_profile', $commerce_customer_profile, 'commerce_customer_address');
+    if ($commerce_customer_address) {
+      $commerce_customer_address = $commerce_customer_address[0];
+      $data['buyer_name'] = $commerce_customer_address['name_line'];
+      $data['contact_number'] = isset($commerce_customer_address['mobile_number']) ? $commerce_customer_address['mobile_number'] : isset($commerce_customer_address['phone_number']) ? $commerce_customer_address['phone_number'] : '';
+      $data['delivery_address']['name'] = $commerce_customer_address['name_line'];
+      $data['delivery_address']['company'] = $commerce_customer_address['organisation_name'];
+      $data['delivery_address']['phone_number'] = $commerce_customer_address['phone_number'];
+      $data['delivery_address']['mobile_number'] = $commerce_customer_address['mobile_number'];
+      $data['delivery_address']['line_1'] = $commerce_customer_address['thoroughfare'];
+      $data['delivery_address']['city'] = $commerce_customer_address['locality'];
+      $data['delivery_address']['state'] = $commerce_customer_address['administrative_area'];
+      $data['delivery_address']['postal_code'] = $commerce_customer_address['postal_code'];
+      $data['delivery_address']['country'] = $commerce_customer_address['country'];
+    }
+  }
+
+  $commerce_line_items = field_get_items('commerce_order', $order, 'commerce_line_items');
+  if ($commerce_line_items) {
+    foreach ($commerce_line_items as $key => $commerce_line_item_id) {
+      $commerce_line_item = commerce_line_item_load($commerce_line_item_id['line_item_id']);
+      $product_id = field_get_items('commerce_line_item', $commerce_line_item, 'commerce_product');
+      if ($product_id) {
+        $product_id = $product_id[0]['product_id'];
+        $commerce_product = commerce_product_load($product_id);
+        $data['items'][$key]['type'] = 'product';
+        $data['items'][$key]['description'] = $commerce_product->title;
+        $product_price = field_get_items('commerce_product', $commerce_product, 'commerce_price');
+        if ($product_price) {
+          $data['items'][$key]['amount'] = $product_price[0]['amount'] / 100;
+          $data['total'] += $product_price[0]['amount'] / 100;
+        }
+        $data['items'][$key]['metadata'] = array(
+          'sku' => $commerce_product->sku,
+        );
+      }
+    }
+  }
+
+  $data['preferred_delivery_time'] = $checkout_pane['preferred_delivery_time']['from'] . ' - ' . $checkout_pane['preferred_delivery_time']['to'];
+
+  $seller_id = field_get_items('commerce_order', $order, 'field_merchant_id');
+  if ($seller_id) {
+    $seller_id = $seller_id[0]['target_id'];
+    $profile = profile2_load_by_user($seller_id);
+    if (isset($profile['seller'])) {
+      if (!empty($profile['seller']->field_pickup_location)) {
+        $pickup_location = $profile['seller']->field_pickup_location[LANGUAGE_NONE][0];
+        $data['pickup_address']['name'] = $profile['seller']->field_owner_name[LANGUAGE_NONE][0]['safe_value'];
+        $data['pickup_address']['company'] = $profile['seller']->field_store_name[LANGUAGE_NONE][0]['safe_value'];
+        $data['pickup_address']['phone_number'] = $profile['seller']->field_landline[LANGUAGE_NONE][0]['safe_value'];
+        $data['pickup_address']['mobile_number'] = $profile['seller']->field_mobile_number[LANGUAGE_NONE][0]['safe_value'];
+        $data['pickup_address']['line_1'] = $pickup_location['thoroughfare'];
+        $data['pickup_address']['line_2'] = '';
+        $data['pickup_address']['city'] = $pickup_location['locality'];
+        $data['pickup_address']['state'] = $pickup_location['administrative_area'];
+        $data['pickup_address']['postal_code'] = $pickup_location['postal_code'];
+        $data['pickup_address']['country'] = $pickup_location['country'];
+      }
+    }
+  }
 
   $request_fields = array(
     CURLOPT_HEADER => 1,
+    CURLOPT_POST => 1,
     CURLOPT_RETURNTRANSFER => 1,
     CURLOPT_HTTPHEADER => array(
-      "Authorization: " . $authorization_key,
-      'Content-type: application/json',
-      'x-time-zone: Asia/Manila',
+      'authorization: Bearer ' . $authorization_key,
+      'content-type: application/json'
     ),
     CURLOPT_POSTFIELDS => json_encode($data),
   );
 
   $response_fields = commerce_lbcx_send_request($request_fields, $url);
 }
-
+ 
 /**
  * Returns the security token for Authorization header.
  *
- * Documentation: http://docs.lbcx.ph/#authorization
+ * Documentation=> http://docs.lbcx.ph/#authorization
  */
 function _commerce_lbcx_authorization($api_key, $secret_key) {
   
@@ -180,7 +275,7 @@ function _commerce_lbcx_authorization($api_key, $secret_key) {
 /**
  * cURL request handler.
  */
-function commerce_lbcx_send_request($request_fields, $url) {
+function commerce_lbcx_send_request($request_fields, $url, $get_response_body = false) {
 
   $ch = curl_init($url);
 
@@ -189,23 +284,30 @@ function commerce_lbcx_send_request($request_fields, $url) {
   $response = curl_exec($ch);
 
   if(curl_errno($ch)) {
-      $error_message  = 'Error occurred: ' . curl_error($ch);
-      $error_code     = curl_errno($ch);
-    } elseif(curl_getinfo($ch, CURLINFO_HTTP_CODE) != 200) {
-      $error_code     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-      $error_message  = "Error occurred. HTTP code: '{$error_code}'";
-    }
+    $error_message  = 'Error occurred: ' . curl_error($ch);
+    $error_code     = curl_errno($ch);
+  } elseif(curl_getinfo($ch, CURLINFO_HTTP_CODE) != 200) {
+    $error_code     = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error_message  = "Error occurred. HTTP code: '{$error_code}'";
+  }
 
+  if ($get_response_body) {
+    $header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    $header = substr($response, 0, $header_size);
+    $response = substr($response, $header_size);
     curl_close($ch);
-
-    // if (!empty($error_message)) {
-    //   throw new RuntimeException($error_message, $error_code);
-    //   return $error_code . ' ' . $error_message;
-    // }
-
-    parse_str($response);
-
     return $response;
+  }
+  curl_close($ch);
+
+  if (!empty($error_message)) {
+    throw new RuntimeException($error_message, $error_code);
+    return $error_code . ' ' . $error_message;
+  }
+
+  parse_str($response);
+
+  return $response;
 }
 
 /**
@@ -214,57 +316,78 @@ function commerce_lbcx_send_request($request_fields, $url) {
  * Documentation: https://documenter.getpostman.com/view/573391/orders-api/2PMscX#ce36683-ef0a-8e7f-3655-bdba70de6796
  */
 function commerce_lbcx_orders() {
-  $url = 'http://api.staging.lbcx.ph/v1/orders';
-
-  $authorization_key = _commerce_lbcx_authorization('72758e5ddaa3fdea', '2eecea15fd86428077b0cb7b9d1ccbba');
-
   $request_fields = array(
     CURLOPT_HEADER => 1,
     CURLOPT_RETURNTRANSFER => 1,
+    CURLOPT_VERBOSE => 1,
     CURLOPT_HTTPHEADER => array(
-      "Authorization: Bearer " . $authorization_key,
+      "Authorization: Bearer " . _commerce_lbcx_authorization('72758e5ddaa3fdea', '2eecea15fd86428077b0cb7b9d1ccbba'),
       'Content-type: multipart/form-data; boundary=---011000010111000001101001'
     ),
   );
 
-  $response_fields = commerce_lbcx_send_request($request_fields, $url);
-
-  return serialize($response_fields);
-}
-
-function commerce_lbcx_webhook() {  
-
-  $_POST['data'] = json_encode(array(
-    'event' => 'status_update',
-    'timestamp' => time(),
-    'data' => array(
-      array(
-        'tracking_number' => 'asda3e90',
-        'reference_id' => '1',
-        'created_at' => '2016-01-01 09:12:23+08',
-        'status_update_at' => null,
-        'status' => 'pending',
-      ),
-      array(
-        'tracking_number' => 'sdassd22',
-        'reference_id' => '2',
-        'created_at' => '2016-01-01 09:12:23+08',
-        'status_update_at' => null,
-        'status' => 'pending',
-      ),
-    ),
-  ));  
-  $data = json_decode($_POST['data']);
-
-  foreach ($data->data as $key => $order) {
-    $commerce_order = commerce_order_load($order->reference_id);
-    
-  }
+  $response_fields = json_decode(commerce_lbcx_send_request($request_fields, 'http://api.staging.lbcx.ph/v1/orders', true));
+  
+  dpm($response_fields);
 
   return 'test';
 }
 
-function commerce_lbcx_server_url($server) {
+/**
+ * Catches the order updates.
+ */
+function commerce_lbcx_webhook() {
+  $json = file_get_contents('php://input');
+  $action = json_decode($json, true);
+  _commerce_lbcx_log('Webhook Log', $action);
+
+  // Check if there are orders in the response.
+  if (!empty($action['data'])) {
+    foreach($action['data'] as $update) {
+      // Check if the reference_id is a valid order_id.
+      if (is_numeric($update['reference_id'])) {
+        $commerce_order = commerce_order_load($update['reference_id']);
+        // Check if the order exists.
+        if ($commerce_order) {
+          $commerce_order->status = $update['status'];
+          $status = commerce_order_status_load($update['status']);
+          commerce_order_save($commerce_order);
+
+          // Update the customer via e-mail.
+          $params['from'] = '"Tender" <' . variable_get('commerce_lbcx_email') . '>';
+          $params['subject'] = 'Order #'         . $commerce_order->order_id;
+          $params['body']  = 'Tracking Number: ' . $update['tracking_number'] . '<br>';
+          $params['body'] .= 'Reference ID: '    . $commerce_order->order_id . '<br>';
+          $params['body'] .= 'Status: '          . $status['title'] . '<br>';
+          $params['body'] .= variable_get('commerce_lbcx_message') . '<br>';
+          drupal_mail('commerce_lbcx', 'commerce_lbcx_update', $commerce_order->mail, language_default(), $params);
+        }
+      }
+    }
+  }
+
+  // Returns a Http Code 200.
+  return '&nbsp;';
+}
+
+/**
+ * Implements hook_mail().
+ */
+function commerce_lbcx_mail($key, &$message, $params) {
+  switch($key) {
+    case 'commerce_lbcx_update':
+      $message['from'] = $params['from'];
+      $message['headers']['From'] = $params['from'];
+      $message['subject'] = $params['subject'];
+      $message['body'][] = $params['body'];
+      break;
+  }
+}
+
+/**
+ * Returns the URL to the specified LBCX server.
+ */
+function _commerce_lbcx_server_url($server) {
   switch ($server) {
     case 'sandbox':
       return 'http://api.staging.lbcx.ph/v1/orders';
@@ -274,52 +397,39 @@ function commerce_lbcx_server_url($server) {
   }
 }
 
-function commerce_lbcx_currency_amount_to_decimal($amount, $currency_code) {
-  $val = commerce_currency_amount_to_decimal($amount, $currency_code);
-  return sprintf('%0.2f', $val);
+/**
+ * Changes the $method_id to a payment method recognizable by LBCX.
+ */
+function _commerce_lbcx_payment_methods($method_id) {
+
+  return str_replace('lbcx_', '', $method_id);
 }
 
-function _commerce_lbcx_status_codes() {
-  return array(
-    'paid' => 'Paid',
-    'confirmed' => 'Confirmed',
-    'pending' => 'Pending',
-    'for_pickup' => 'For Pickup',
-    'picked_up' => 'Picked-up',
-    'failed_pickup' => 'Failed Pickup',
-    'in_transit' => 'In Transit',
-    'completed' => 'Delivered',
-    'refunded' => 'Refunded',
-    'canceled' => 'Canceled',
-  );
-}
-
-function _commerce_lbcx_error_codes() {
-  return array(
-    '200' => 'Success',
-    '400' => 'Bad Request',
-    '401' => 'Unauthorized',
-    '404' => 'Not Found',
-    '413' => 'Request Entity Too Large',
-    '422' => 'Unprocessable Entity',
-    '429' => 'Too Many Requests',
-    '500' => 'Internal Server Error',
-  );
-}
-
-function commerce_lbcx_currencies($method_id = 'default') {
-  switch ($method_id) {
-    default:
-      return drupal_map_assoc(array('PHP', 'USD'));
+/**
+ * Returns time allowable values.
+ */
+function _commerce_lbcx_delivery_time() {
+  $time = array();
+  for($i = 1; $i <= 12; $i++) {
+    $time["$i AM"] = "$i AM";
   }
+  for($i = 1; $i <= 12; $i++) {
+    $time["$i PM"] = "$i PM";
+  }
+
+  return $time;
 }
 
-function commerce_lbcx_log($message) {
+function _commerce_lbcx_log($message, $data = array()) {
   global $user;
-  $log_date = new DateTime();
-  db_insert('commerce_lbcx_log')->fields(array(
-    'log_date' => $log_date->format('Y-m-d H:i:s'),
-    'log_message' => check_plain($message),
-    'logged_by' => $user->uid,
-  ))->execute();
+  $date = new DateTime();
+
+  db_insert('commerce_lbcx_log')
+    ->fields(array(
+      'log_date' => $date->format('Y-m-d H:i:s'),
+      'log_message' => $message,
+      'log_data' => serialize($data),
+      'logged_by' => $user->uid
+    ))
+    ->execute();
 }

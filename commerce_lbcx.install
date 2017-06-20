@@ -18,6 +18,9 @@ function commerce_lbcx_schema() {
         'type' => 'varchar',
         'length' => 255,
       ),
+      'log_data' => array(
+        'type' => 'blob',
+      ),
       'logged_by' => array(
         'type' => 'int',
       ),
