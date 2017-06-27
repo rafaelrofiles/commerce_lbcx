@@ -310,28 +310,6 @@ function commerce_lbcx_send_request($request_fields, $url, $get_response_body = 
   return $response;
 }
 
-/**
- * Returns a list of orders. 
- *
- * Documentation: https://documenter.getpostman.com/view/573391/orders-api/2PMscX#ce36683-ef0a-8e7f-3655-bdba70de6796
- */
-function commerce_lbcx_orders() {
-  $request_fields = array(
-    CURLOPT_HEADER => 1,
-    CURLOPT_RETURNTRANSFER => 1,
-    CURLOPT_VERBOSE => 1,
-    CURLOPT_HTTPHEADER => array(
-      "Authorization: Bearer " . _commerce_lbcx_authorization('72758e5ddaa3fdea', '2eecea15fd86428077b0cb7b9d1ccbba'),
-      'Content-type: multipart/form-data; boundary=---011000010111000001101001'
-    ),
-  );
-
-  $response_fields = json_decode(commerce_lbcx_send_request($request_fields, 'http://api.staging.lbcx.ph/v1/orders', true));
-  
-  dpm($response_fields);
-
-  return 'test';
-}
 
 /**
  * Catches the order updates.
@@ -420,6 +398,9 @@ function _commerce_lbcx_delivery_time() {
   return $time;
 }
 
+/**
+ * Log
+ */
 function _commerce_lbcx_log($message, $data = array()) {
   global $user;
   $date = new DateTime();
